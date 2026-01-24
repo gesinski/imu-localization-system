@@ -19,5 +19,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "android-localization-app"
+rootProject.name = "inertial-navigation"
 include(":app")
+ 
