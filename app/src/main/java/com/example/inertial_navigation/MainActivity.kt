@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBox
-import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -45,11 +45,14 @@ import com.example.inertial_navigation.ui.theme.InertialnavigationTheme
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import org.osmdroid.config.Configuration
-
+import android.os.Handler
+import android.os.Looper
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
+import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import org.osmdroid.config.Configuration.*
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.views.MapView
-import org.osmdroid.util.GeoPoint
 
 
 class MainActivity : ComponentActivity() {
@@ -162,25 +165,44 @@ fun MapScreen () {
 
     AndroidView(
         factory = { ctx ->
+            Configuration.getInstance().userAgentValue = ctx.packageName
+
             MapView(ctx).apply {
                 setTileSource(TileSourceFactory.MAPNIK)
                 setMultiTouchControls(true)
                 controller.setZoom(16.0)
-                controller.setCenter(GeoPoint(54.3423, 18.3663))
+
+                val locationOverlay = MyLocationNewOverlay(
+                    GpsMyLocationProvider(ctx),
+                    this
+                )
+
+                locationOverlay.enableMyLocation()
+
+                locationOverlay.runOnFirstFix {
+                    val mainHandler = Handler(Looper.getMainLooper())
+                    mainHandler.post {
+                        locationOverlay.enableFollowLocation()
+                        val myLocation = locationOverlay.myLocation
+                        if (myLocation != null) {
+                            controller.animateTo(myLocation)
+                        }
+                    }
+                }
+
+                overlays.add(locationOverlay)
             }
         },
-        modifier = Modifier.fillMaxSize(),
-        update = { mapView ->
-            // update loop
-        }
+        modifier = Modifier.fillMaxSize()
     )
+
 }
 enum class AppDestinations(
     val label: String,
     val icon: ImageVector,
 ) {
     HOME("Home", Icons.Default.Home),
-    MAP("Map", Icons.Default.Favorite),
+    MAP("Map", Icons.Default.Place),
     PROFILE("Profile", Icons.Default.AccountBox),
 }
 
