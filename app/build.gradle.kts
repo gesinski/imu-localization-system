@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.inertial_navigation"
+    namespace = "com.example.navigation"
     compileSdk {
         version = release(36)
     }

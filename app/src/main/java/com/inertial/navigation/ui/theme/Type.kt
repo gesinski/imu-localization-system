@@ -1,4 +1,4 @@
-package com.example.inertial_navigation.ui.theme
+package com.inertial.navigation.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
