@@ -5,13 +5,13 @@ plugins {
 }
 
 android {
-    namespace = "com.example.navigation"
+    namespace = "com.inertial.navigation"
     compileSdk {
         version = release(36)
     }
 
     defaultConfig {
-        applicationId = "com.example.inertial_navigation"
+        applicationId = "com.inertial.navigation"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
