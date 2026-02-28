@@ -54,6 +54,11 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.util.GeoPoint
 class MainActivity : ComponentActivity() {
+           
+    external fun calculateIMU(): String
+           
+    init { System.loadLibrary("rust_lib") }
+
     private val REQUEST_PERMISSIONS_REQUEST_CODE = 1
     private lateinit var map : MapView
     private var userMarker: Marker? = null
@@ -65,6 +70,8 @@ class MainActivity : ComponentActivity() {
             applicationContext,
             PreferenceManager.getDefaultSharedPreferences(applicationContext)
         )
+
+        println(calculateIMU())
 
         enableEdgeToEdge()
         setContent {
