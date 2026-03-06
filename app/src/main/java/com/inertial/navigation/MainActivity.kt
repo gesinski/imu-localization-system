@@ -54,8 +54,13 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.util.GeoPoint
 class MainActivity : ComponentActivity() {
-           
-    external fun calculateIMU(): String
+
+    external fun updateIMU(
+        gx: Float, gy: Float, gz: Float,
+        ax: Float, ay: Float, az: Float,
+        mx: Float, my: Float, mz: Float,
+        dt: Float
+    ): Float
            
     init { System.loadLibrary("rust_lib") }
 
@@ -70,8 +75,6 @@ class MainActivity : ComponentActivity() {
             applicationContext,
             PreferenceManager.getDefaultSharedPreferences(applicationContext)
         )
-
-        println(calculateIMU())
 
         enableEdgeToEdge()
         setContent {
@@ -126,6 +129,7 @@ fun GpsScreen(onLocationReceived: (GeoPoint) -> Unit) {
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     var isTracking by remember { mutableStateOf(false) }
 
+    val activity = context as MainActivity
 
     var locationText by remember { mutableStateOf("Click the button to obtain position") }
 
@@ -153,23 +157,63 @@ fun GpsScreen(onLocationReceived: (GeoPoint) -> Unit) {
     }
 
     //sensors
-    var accData by remember { mutableStateOf("Acc: x, y, z") }
-    var gyroData by remember { mutableStateOf("Gyro: x, y, z") }
-    var magData by remember { mutableStateOf("Mag: x, y, z") }
+    var acc by remember { mutableStateOf(FloatArray(3)) }
+    var gyro by remember { mutableStateOf(FloatArray(3)) }
+    var mag by remember { mutableStateOf(FloatArray(3)) }
 
-    val sensorManager = context.getSystemService(android.content.Context.SENSOR_SERVICE) as android.hardware.SensorManager
+    var accText by remember { mutableStateOf("") }
+    var gyroText by remember { mutableStateOf("") }
+    var magText by remember { mutableStateOf("") }
+
+    var heading by remember { mutableStateOf(0f) }
+
+    var lastTimestamp by remember { mutableStateOf(0L) }
+
+    val sensorManager = remember {
+        context.getSystemService(android.content.Context.SENSOR_SERVICE) as android.hardware.SensorManager
+    }
 
     DisposableEffect(Unit) {
         val listener = object : android.hardware.SensorEventListener {
             override fun onSensorChanged(event: android.hardware.SensorEvent?) {
+
                 event ?: return
                 val values = event.values
+
+//                android.util.Log.d("SENSOR_DEBUG", "Sensor: ${event.sensor.type}, values = ${event.values.joinToString()}")
+
                 val text = "x: %.2f, y: %.2f, z: %.2f".format(values[0], values[1], values[2])
 
                 when (event.sensor.type) {
-                    android.hardware.Sensor.TYPE_ACCELEROMETER -> accData = "Acc: $text"
-                    android.hardware.Sensor.TYPE_GYROSCOPE -> gyroData = "Gyro: $text"
-                    android.hardware.Sensor.TYPE_MAGNETIC_FIELD -> magData = "Mag: $text"
+
+                    android.hardware.Sensor.TYPE_ACCELEROMETER -> {
+                        acc = values.clone()
+                        accText = "Acc: $text"
+                    }
+
+                    android.hardware.Sensor.TYPE_MAGNETIC_FIELD -> {
+                        mag = values.clone()
+                        magText = "Mag: $text"
+                    }
+
+                    android.hardware.Sensor.TYPE_GYROSCOPE -> {
+
+                        gyro = values.clone()
+                        gyroText = "Gyro: $text"
+
+                        if (lastTimestamp != 0L) {
+                            val dt = (event.timestamp - lastTimestamp) * 1e-9f
+
+                            heading = activity.updateIMU(
+                                gyro[0], gyro[1], gyro[2],
+                                acc[0], acc[1], acc[2],
+                                mag[0], mag[1], mag[2],
+                                dt
+                            )
+                        }
+
+                        lastTimestamp = event.timestamp
+                    }
                 }
             }
             override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
@@ -179,9 +223,9 @@ fun GpsScreen(onLocationReceived: (GeoPoint) -> Unit) {
         val gyro = sensorManager.getDefaultSensor(android.hardware.Sensor.TYPE_GYROSCOPE)
         val mag = sensorManager.getDefaultSensor(android.hardware.Sensor.TYPE_MAGNETIC_FIELD)
 
-        sensorManager.registerListener(listener, acc, android.hardware.SensorManager.SENSOR_DELAY_UI)
-        sensorManager.registerListener(listener, gyro, android.hardware.SensorManager.SENSOR_DELAY_UI)
-        sensorManager.registerListener(listener, mag, android.hardware.SensorManager.SENSOR_DELAY_UI)
+        acc?.let { sensorManager.registerListener(listener, it, android.hardware.SensorManager.SENSOR_DELAY_GAME) }
+        gyro?.let { sensorManager.registerListener(listener, it, android.hardware.SensorManager.SENSOR_DELAY_GAME) }
+        mag?.let { sensorManager.registerListener(listener, it, android.hardware.SensorManager.SENSOR_DELAY_GAME) }
 
         onDispose {
             sensorManager.unregisterListener(listener)
@@ -198,11 +242,15 @@ fun GpsScreen(onLocationReceived: (GeoPoint) -> Unit) {
         Text(text = locationText)
         Spacer(modifier = Modifier.height(24.dp))
 
+        Text(
+            text = "Heading: %.2f°".format(Math.toDegrees(heading.toDouble())),
+            style = MaterialTheme.typography.titleMedium)
+
         //sensors
         Text(text = "Sensor Data:", style = MaterialTheme.typography.titleMedium)
-        Text(text = accData, style = MaterialTheme.typography.bodySmall)
-        Text(text = gyroData, style = MaterialTheme.typography.bodySmall)
-        Text(text = magData, style = MaterialTheme.typography.bodySmall)
+        Text(text = accText, style = MaterialTheme.typography.bodySmall)
+        Text(text = gyroText, style = MaterialTheme.typography.bodySmall)
+        Text(text = magText, style = MaterialTheme.typography.bodySmall)
 
         Spacer(modifier = Modifier.height(24.dp))
 
