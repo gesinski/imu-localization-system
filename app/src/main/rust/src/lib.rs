@@ -32,6 +32,9 @@ pub extern "C" fn Java_com_inertial_navigation_MainActivity_updateIMU(
 
 struct ImuFilter {
     q: [f32;4],
+    previous_norm_acc: f32,
+    steps: u32,
+    alpha: f32,
 }
 
 impl ImuFilter {
@@ -39,16 +42,36 @@ impl ImuFilter {
     fn new() -> Self {
         Self {
             q: [1.0, 0.0, 0.0, 0.0],
+            previous_norm_acc: 9.81,
+            steps: 0,
+            alpha: 0.15,  
         }
+    }
+
+    // step detection
+    fn detect_step(&mut self, acc: [f32;3]) -> bool {
+        let raw_norm = (acc[0]*acc[0] + acc[1]*acc[1] + acc[2]*acc[2]).sqrt();
+        let filtered_norm = self.alpha * raw_norm + (1.0 - self.alpha) * self.previous_norm_acc;
+        let threshold = 12.0; 
+        // temporary hardcoded 
+        // TODO: dynamic threshold calculatio ex: Low-pass filter | Adaptive Threshold
+        
+        let is_step = filtered_norm > threshold && self.previous_norm_acc <= threshold;
+        self.previous_norm_acc = filtered_norm;
+        
+        if is_step { self.steps += 1; }
+        is_step
     }
 
     fn update(
         &mut self,
         gyro:[f32;3],
-        _acc:[f32;3],
+        acc:[f32;3],
         _mag:[f32;3],
         dt:f32
     ) {
+
+        self.detect_step(acc)
 
         // simple gyro integration (temporary)
 
