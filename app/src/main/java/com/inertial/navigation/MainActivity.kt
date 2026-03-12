@@ -46,13 +46,20 @@ import com.google.android.gms.location.Priority
 import org.osmdroid.config.Configuration
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
+import android.util.Log.println
+import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.util.GeoPoint
+
+enum class Mode {GPS, IMU, GPS_AND_IMU}
+
 class MainActivity : ComponentActivity() {
 
     external fun updateIMU(
@@ -60,7 +67,7 @@ class MainActivity : ComponentActivity() {
         ax: Float, ay: Float, az: Float,
         mx: Float, my: Float, mz: Float,
         dt: Float
-    ): Float
+    ): FloatArray
            
     init { System.loadLibrary("rust_lib") }
 
@@ -113,7 +120,13 @@ fun InertialnavigationApp() {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
                 when (currentDestination) {
-                    AppDestinations.HOME -> GpsScreen(onLocationReceived = { userLocation = it })
+                    AppDestinations.HOME -> GpsScreen(
+                        currentLocation = userLocation,
+                        onLocationReceived = { userLocation = it }
+                    )
+
+
+
                     AppDestinations.MAP -> MapScreen(currentLocation = userLocation)
                     AppDestinations.PROFILE -> InfoScreen("Profil")
                 }
@@ -123,13 +136,16 @@ fun InertialnavigationApp() {
 }
 
 @Composable
-fun GpsScreen(onLocationReceived: (GeoPoint) -> Unit) {
+fun GpsScreen(currentLocation: GeoPoint, onLocationReceived: (GeoPoint) -> Unit) {
 
     val context = LocalContext.current
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     var isTracking by remember { mutableStateOf(false) }
 
     val activity = context as MainActivity
+
+    var activeMode by remember { mutableStateOf(Mode.GPS)}
+    val currentTrackingMode by rememberUpdatedState(activeMode)
 
     var locationText by remember { mutableStateOf("Click the button to obtain position") }
 
@@ -147,10 +163,12 @@ fun GpsScreen(onLocationReceived: (GeoPoint) -> Unit) {
     val locationCallback = remember {
         object : com.google.android.gms.location.LocationCallback() {
             override fun onLocationResult(result: com.google.android.gms.location.LocationResult) {
-                for (location in result.locations) {
-                    val point = GeoPoint(location.latitude, location.longitude)
-                    onLocationReceived(point)
-                    locationText = "Lat: ${location.latitude}\nLon: ${location.longitude}"
+                if (currentTrackingMode == Mode.GPS || currentTrackingMode == Mode.GPS_AND_IMU) {
+                    for (location in result.locations) {
+                        val point = GeoPoint(location.latitude, location.longitude)
+                        onLocationReceived(point)
+                        locationText = "Lat: ${location.latitude}\nLon: ${location.longitude}"
+                    }
                 }
             }
         }
@@ -167,13 +185,18 @@ fun GpsScreen(onLocationReceived: (GeoPoint) -> Unit) {
 
     var heading by remember { mutableStateOf(0f) }
 
-    var lastTimestamp by remember { mutableStateOf(0L) }
+
 
     val sensorManager = remember {
         context.getSystemService(android.content.Context.SENSOR_SERVICE) as android.hardware.SensorManager
     }
 
+    val current_localization by rememberUpdatedState(currentLocation)
+    val update_localization by rememberUpdatedState(onLocationReceived)
+
     DisposableEffect(Unit) {
+        var lastTimestamp = 0L
+
         val listener = object : android.hardware.SensorEventListener {
             override fun onSensorChanged(event: android.hardware.SensorEvent?) {
 
@@ -204,12 +227,31 @@ fun GpsScreen(onLocationReceived: (GeoPoint) -> Unit) {
                         if (lastTimestamp != 0L) {
                             val dt = (event.timestamp - lastTimestamp) * 1e-9f
 
-                            heading = activity.updateIMU(
+                            val heading_step_data = activity.updateIMU(
                                 gyro[0], gyro[1], gyro[2],
                                 acc[0], acc[1], acc[2],
                                 mag[0], mag[1], mag[2],
                                 dt
                             )
+
+                            heading = heading_step_data[0]
+                            val isStep = heading_step_data[1] == 1.0f
+                            val step_length = heading_step_data[2]
+
+                            if (isStep) {
+                                android.util.Log.d("IMU_DEBUG", "STEP Length: $step_length")
+                            }
+                            if(isStep && (currentTrackingMode == Mode.IMU || currentTrackingMode == Mode.GPS_AND_IMU)) {
+                                val radious_latitude = Math.toRadians(current_localization.latitude)
+                                val meters_per_degree_latitude = 111111.0
+                                val meters_per_degree_longitude = 111111.0 * Math.cos(radious_latitude)
+
+                                val delta_latitude = (step_length * Math.cos(heading.toDouble())) / meters_per_degree_latitude
+                                val delta_longitude = (step_length * Math.sin(heading.toDouble())) / meters_per_degree_longitude
+
+                                update_localization(GeoPoint(current_localization.latitude + delta_latitude,
+                                    current_localization.longitude + delta_longitude))
+                            }
                         }
 
                         lastTimestamp = event.timestamp
@@ -251,6 +293,23 @@ fun GpsScreen(onLocationReceived: (GeoPoint) -> Unit) {
         Text(text = accText, style = MaterialTheme.typography.bodySmall)
         Text(text = gyroText, style = MaterialTheme.typography.bodySmall)
         Text(text = magText, style = MaterialTheme.typography.bodySmall)
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(text = "Tracking Mode:", style = MaterialTheme.typography.titleMedium)
+        Row() {
+            Mode.entries.forEach { mode ->
+                Button(
+                    onClick = { activeMode = mode },
+                    colors = if (activeMode == mode)
+                        androidx.compose.material3.ButtonDefaults.buttonColors()
+                    else
+                        androidx.compose.material3.ButtonDefaults.filledTonalButtonColors()
+                ) {
+                    Text(mode.name)
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
 
