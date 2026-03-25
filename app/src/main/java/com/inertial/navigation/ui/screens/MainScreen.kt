@@ -13,11 +13,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.inertial.navigation.logic.NavigationManager
 import com.inertial.navigation.model.AppDestinations
 import org.osmdroid.util.GeoPoint
 
 @Composable
-fun MainNavigationScreen() {
+fun MainNavigationScreen(navManager: NavigationManager) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
 
     var userLocation by rememberSaveable { mutableStateOf(GeoPoint(52.2297, 21.0122)) }
@@ -43,12 +44,11 @@ fun MainNavigationScreen() {
             ) {
                 when (currentDestination) {
                     AppDestinations.HOME -> GpsScreen(
-                        currentLocation = userLocation,
-                        onLocationReceived = { newLocation -> userLocation = newLocation }
+                        navManager = navManager
                     )
 
                     AppDestinations.MAP -> MapScreen(
-                        currentLocation = userLocation
+                        currentLocation = navManager.currentLocation
                     )
 
                     AppDestinations.PROFILE -> InfoScreen(
