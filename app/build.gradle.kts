@@ -42,6 +42,7 @@ android {
 }
 
 dependencies {
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -61,4 +62,5 @@ dependencies {
 
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("org.osmdroid:osmdroid-android:6.1.20")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
 }
