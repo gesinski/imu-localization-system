@@ -7,20 +7,24 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.Handler
 import android.os.Looper
 import androidx.compose.runtime.*
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.*
 import org.osmdroid.util.GeoPoint
+import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.*
 import kotlin.math.cos
 import kotlin.math.sin
 import com.inertial.navigation.model.Mode
+import com.inertial.navigation.model.RecordingState
 
 class NavigationManager(private val context: Context) : SensorEventListener {
 
-
     private val nativeLib = NativeLib()
-
 
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
@@ -30,6 +34,22 @@ class NavigationManager(private val context: Context) : SensorEventListener {
     var heading by mutableFloatStateOf(0f)
     var stepCount by mutableIntStateOf(0)
     var statusText by mutableStateOf("System Ready")
+
+    var recordingState by mutableStateOf(RecordingState.IDLE)
+    val recordedRoute = mutableStateListOf<GeoPoint>()
+    var recordingTimeSeconds by mutableLongStateOf(0L)
+
+    private var timerHandler = Handler(Looper.getMainLooper())
+    private val timerRunnable = object : Runnable {
+        override fun run() {
+            if (recordingState == RecordingState.RECORDING) {
+                recordingTimeSeconds++
+                timerHandler.postDelayed(this, 1000)
+            }
+        }
+    }
+
+    private var gpxFile: File? = null
 
     var accValues by mutableStateOf(FloatArray(3))
     var gyroValues by mutableStateOf(FloatArray(3))
@@ -42,10 +62,99 @@ class NavigationManager(private val context: Context) : SensorEventListener {
             if (activeMode == Mode.GPS || activeMode == Mode.GPS_AND_IMU) {
                 result.lastLocation?.let {
                     val newPoint = GeoPoint(it.latitude, it.longitude)
-                    currentLocation = newPoint
+                    updateCurrentLocation(newPoint)
                     statusText = "GPS : ${it.latitude.toString().take(7)}, ${it.longitude.toString().take(7)}"
                 }
             }
+        }
+    }
+
+    private fun updateCurrentLocation(newPoint: GeoPoint) {
+        currentLocation = newPoint
+        if (recordingState == RecordingState.RECORDING) {
+            recordedRoute.add(newPoint)
+            savePointToGpx(newPoint)
+        }
+    }
+
+    fun startRecording() {
+        recordedRoute.clear()
+        recordingTimeSeconds = 0L
+        recordingState = RecordingState.RECORDING
+        recordedRoute.add(currentLocation)
+        initGpxFile()
+        savePointToGpx(currentLocation)
+        timerHandler.postDelayed(timerRunnable, 1000)
+    }
+
+    fun pauseRecording() {
+        recordingState = RecordingState.PAUSED
+        timerHandler.removeCallbacks(timerRunnable)
+    }
+
+    fun resumeRecording() {
+        recordingState = RecordingState.RECORDING
+        timerHandler.postDelayed(timerRunnable, 1000)
+    }
+
+    fun stopRecording() {
+        val path = gpxFile?.absolutePath
+        recordingState = RecordingState.IDLE
+        timerHandler.removeCallbacks(timerRunnable)
+        finalizeGpxFile()
+        statusText = "Saved to: $path"
+    }
+
+    private fun initGpxFile() {
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val fileName = "route_$timestamp.gpx"
+        gpxFile = File(context.getExternalFilesDir(null), fileName)
+        
+        val header = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <gpx version="1.1" creator="InertialNavigation" xmlns="http://www.topografix.com/GPX/1/1">
+              <trk>
+                <name>Route $timestamp</name>
+                <trkseg>
+        """.trimIndent() + "\n"
+        
+        FileOutputStream(gpxFile).use { it.write(header.toByteArray()) }
+    }
+
+    private fun savePointToGpx(point: GeoPoint) {
+        val file = gpxFile ?: return
+        val time = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault()).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.format(Date())
+        
+        val pointXml = """
+                  <trkpt lat="${point.latitude}" lon="${point.longitude}">
+                    <time>$time</time>
+                  </trkpt>
+        """.trimIndent() + "\n"
+        
+        FileOutputStream(file, true).use { it.write(pointXml.toByteArray()) }
+    }
+
+    private fun finalizeGpxFile() {
+        val file = gpxFile ?: return
+        val footer = """
+                </trkseg>
+              </trk>
+            </gpx>
+        """.trimIndent()
+        FileOutputStream(file, true).use { it.write(footer.toByteArray()) }
+        gpxFile = null
+    }
+
+    fun getGpxFiles(): List<File> {
+        val dir = context.getExternalFilesDir(null)
+        return dir?.listFiles { file -> file.extension == "gpx" }?.toList() ?: emptyList()
+    }
+
+    fun deleteGpxFile(file: File) {
+        if (file.exists()) {
+            file.delete()
         }
     }
 
@@ -134,7 +243,7 @@ class NavigationManager(private val context: Context) : SensorEventListener {
         val dLat = (stepLength * cos(heading.toDouble())) / mPerDegLat
         val dLon = (stepLength * sin(heading.toDouble())) / mPerDegLon
 
-        currentLocation = GeoPoint(currentLocation.latitude + dLat, currentLocation.longitude + dLon)
+        updateCurrentLocation(GeoPoint(currentLocation.latitude + dLat, currentLocation.longitude + dLon))
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}

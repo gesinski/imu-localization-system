@@ -21,8 +21,6 @@ import org.osmdroid.util.GeoPoint
 fun MainNavigationScreen(navManager: NavigationManager) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
 
-    var userLocation by rememberSaveable { mutableStateOf(GeoPoint(52.2297, 21.0122)) }
-
     NavigationSuiteScaffold(
         navigationSuiteItems = {
             AppDestinations.entries.forEach { destination ->
@@ -48,10 +46,11 @@ fun MainNavigationScreen(navManager: NavigationManager) {
                     )
 
                     AppDestinations.MAP -> MapScreen(
-                        currentLocation = navManager.currentLocation
+                        navManager = navManager
                     )
 
                     AppDestinations.PROFILE -> InfoScreen(
+                        navManager = navManager,
                         title = "Profile"
                     )
                 }
